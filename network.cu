@@ -29,33 +29,20 @@ Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize) {
 
 void forward(Model *model, float *input) {
   Network net = *(model->network);
-
-  int blockSize = 512;
-  int blockNum = BLOCKS(model->hidden, blockSize);
-
   // y = s(x⋅wxh + bh)⋅why + by
   // Load input
   setDeviceMatrixData(net.input, input, model->input);
   // Calc hidden layer
-  matrixMult<<<blockNum, blockSize>>>(net.input, net.wxh, net.hidden);
-  cudaDeviceSynchronize();
-  matrixAdd<<<blockNum, blockSize>>>(net.hidden, net.bh, net.hidden, 1);
-  cudaDeviceSynchronize();
-  sigmoid<<<blockNum, blockSize>>>(net.hidden, net.hidden);
-  cudaDeviceSynchronize();
+  deviceMatrixMult(net.input, net.wxh, net.hidden, model->hidden);
+  deviceMatrixAdd(net.hidden, net.bh, net.hidden, 1, model->hidden);
+  deviceSigmoid(net.hidden, net.hidden, model->hidden);
   // Calc output layer
-  blockNum = BLOCKS(model->output, blockSize);
-  matrixMult<<<blockNum, blockSize>>>(net.hidden, net.why, net.output);
-  cudaDeviceSynchronize();
-  matrixAdd<<<blockNum, blockSize>>>(net.output, net.by, net.output, 1);
-  cudaDeviceSynchronize();
+  deviceMatrixMult(net.hidden, net.why, net.output, model->output);
+  deviceMatrixAdd(net.output, net.by, net.output, 1, model->output);
 }
 
 void backward(Model *model, float *target) {
   Network net = *(model->network);
-  int blockSize = 512;
-  int blockNum =  BLOCKS(model->output, blockSize);
-
   /** Calulate the derivate of the Cost function
    * dC/dw = tH ⋅ ((sod(y) ⊙ error) ⋅ lr)
    * dC/dw = matrixMult(
@@ -69,35 +56,58 @@ void backward(Model *model, float *target) {
    *   )
    * );
   */
-  
+
   // Copy target data to GPU
   Matrix *error;
   initMatrix(&error, 1, model->output);
   setDeviceMatrixData(error, target, model->output);
   // Calculate error
-  matrixAdd<<<blockNum, blockSize>>>(error, net.output, error, -1);   // error
-  cudaDeviceSynchronize();
-  checkError("Matrix sub");
+  deviceMatrixAdd(error, net.output, error, -1, model->output);               // error
   // Calculate gradient
   Matrix *gradient;
   initMatrix(&gradient, 1, model->output);
-  sigmoidOutputDerivative<<<blockNum, blockSize>>>(net.output, gradient);   // sod(y)
-  cudaDeviceSynchronize();
-  checkError("Derivative");
-  hadamardProd<<<blockNum, blockSize>>>(gradient, error, gradient);   // sod(y) ⊙ error
-  cudaDeviceSynchronize();
-  checkError("Hadamard");
-  matrixScale<<<blockNum, blockSize>>>(gradient, model->learningRate, gradient);  // (sod(y) ⊙ error) ⋅ lr
-  cudaDeviceSynchronize();
-  checkError("Scale");
-  // Calculate delta weights
+  deviceSigmoidOutputDerivative(net.output, gradient, model->output);         // sod(y)
+  deviceHadamardProd(gradient, error, gradient, model->output);               // sod(y) ⊙ error
+  deviceMatrixScale(gradient, model->learningRate, gradient, model->output);  // (sod(y) ⊙ error) ⋅ lr
+  // Update bias
+  deviceMatrixAdd(net.by, gradient, net.by);
+  // Calculate delta why weights
   Matrix *tHidden;
   matrixTranpose(net.hidden, &tHidden, 1, model->hidden); // (h,1)
-  cudaDeviceSynchronize();
-  checkError("Transpose");
   Matrix *deltaWhy;
   initMatrix(&deltaWhy, model->hidden, model->output);  // (h,o)
-  matrixMult<<<BLOCKS((model->hidden*model->output), blockSize), blockSize>>>
-    (tHidden, gradient, gradient);  // (h,1)(1,o) = (h,o)                       tH ⋅ ((sod(y) ⊙ error) ⋅ lr)
-  
+  deviceMatrixMult(tHidden, gradient, deltaWhy, model->hidden*model->output); // tH ⋅ ((sod(y) ⊙ error) ⋅ lr)
+  freeMatrix(gradient);
+  freeMatrix(tHidden);
+
+  // Calculate hidden layer error
+  Matrix *hiddenError;
+  initMatrix(&hiddenError, 1, model->hidden);
+  Matrix *tWhy;
+  matrixTranpose(net.why, &tWhy, model->hidden, model->output); // (o,h)
+  deviceMatrixMult(error, tWhy, hiddenError, model->hidden);    // (1,o)(0,h) = (1,h)
+  freeMatrix(error);
+  freeMatrix(tWhy);
+  // Hidden layer gradient
+  initMatrix(&gradient, 1, model->hidden);
+  deviceSigmoidOutputDerivative(net.hidden, gradient, model->hidden);
+  deviceHadamardProd(gradient, hiddenError, gradient, model->hidden);
+  deviceMatrixScale(gradient, model->learningRate, gradient, model->hidden);
+  // Update bias
+  deviceMatrixAdd(net.by, gradient, net.by);
+  // Calculate delta wxh weights
+  freeMatrix(hiddenError);
+  Matrix *tInput;
+  matrixTranpose(net.input, &tInput, 1, model->input); // (i,1)
+  Matrix *deltaWxh;
+  initMatrix(&deltaWxh, model->input, model->hidden);  // (i,h)
+  deviceMatrixMult(tInput, gradient, deltaWxh, model->input*model->hidden);  // (i,1)(1,h) = (i,h)
+
+  // Update weights
+  deviceMatrixAdd(net.why, deltaWhy, net.why);
+  deviceMatrixAdd(net.wxh, deltaWxh, net.why);
+  freeMatrix(gradient);
+  freeMatrix(tInput);
+  freeMatrix(deltaWhy);
+  freeMatrix(deltaWxh);
 }

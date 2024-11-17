@@ -5,6 +5,7 @@
 #include <string.h>
 #include "util.h"
 #include "matrix.h"
+#define BLOCKDIM 512
 
 
 /** MEMORY management **/
@@ -85,11 +86,21 @@ __global__ void matrixMult(Matrix *a, Matrix *b, Matrix *ab) {
     result += a->data[row*(a->cols)+k] * b->data[k*(b->cols)+col];
   ab->data[row * b->cols + col] = result;   // (n,m) * (m,p) = (n,p)
 }
+void deviceMatrixMult(Matrix *a, Matrix *b, Matrix *ab, int N) {
+  matrixMult<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, ab);
+  cudaDeviceSynchronize();
+  checkError("Matrix mult");
+}
 
 __global__ void matrixAdd(Matrix *a, Matrix *b, Matrix *c, int negate) {
   int i = threadIdx.x + blockIdx.x * blockDim.x;
   if (i < size(c))
     c->data[i] = a->data[i] + (b->data[i] * negate);
+}
+void deviceMatrixAdd(Matrix *a, Matrix *b, Matrix *c, int negate, int N) {
+  matrixAdd<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c, negate);
+  cudaDeviceSynchronize();
+  checkError("Matrix add");
 }
 
 __global__ void matrixScale(Matrix *a, float scale, Matrix *b) {
@@ -97,11 +108,21 @@ __global__ void matrixScale(Matrix *a, float scale, Matrix *b) {
   if (i < size(b))
     b->data[i] = a->data[i] * scale;
 }
+void deviceMatrixScale(Matrix *a, float scale, Matrix *b, int N) {
+  matrixScale<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, scale, b);
+  cudaDeviceSynchronize();
+  checkError("Matrix scale");
+}
 
 __global__ void hadamardProd(Matrix *a, Matrix *b, Matrix *c) {
   int i = threadIdx.x + blockIdx.x * blockDim.x;
   if (i < size(c))
     c->data[i] = a->data[i] * b->data[i];
+}
+void deviceHadamardProd(Matrix *a, Matrix *b, Matrix *c, int N) {
+  matrixScale<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c);
+  cudaDeviceSynchronize();
+  checkError("Hadamard");
 }
 
 __global__ void sigmoid(Matrix *a, Matrix *b) {
@@ -109,6 +130,12 @@ __global__ void sigmoid(Matrix *a, Matrix *b) {
   if (i < size(b))
     b->data[i] =  1/(1+exp(a->data[i] * -1));
 }
+void deviceSigmoid(Matrix *a, Matrix *b, int N) {
+  sigmoid<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b);
+  cudaDeviceSynchronize();
+  checkError("Sigmoid");
+}
+
 __global__ void sigmoidOutputDerivative(Matrix *a, Matrix *b) {
   int i = threadIdx.x + blockIdx.x * blockDim.x;
   if (i < size(b)) {
@@ -116,14 +143,20 @@ __global__ void sigmoidOutputDerivative(Matrix *a, Matrix *b) {
     b->data[i] = x * (1 - x);
   }
 }
+void deviceSigmoidOutputDerivative(Matrix *a, Matrix *b, int N) {
+  sigmoid<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b);
+  cudaDeviceSynchronize();
+  checkError("Derivative");
+}
 
 
 /** TRANSPOSE **/
 void matrixTranpose(Matrix *a, Matrix **b, int arows, int acols) {
   initMatrix(b, acols, arows); // Create matrix with switched rows/cols
   transpose<<<(arows*acols + 511) / 512, 512>>>(a, *b);
+  cudaDeviceSynchronize();
+  checkError("Transpose");
 }
-
 __global__ void transpose(Matrix *a, Matrix *b) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   int rows = a->rows, cols = a->cols;

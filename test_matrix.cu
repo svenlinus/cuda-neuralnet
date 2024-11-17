@@ -1,4 +1,3 @@
-%%writefile test_matrix.cu
 #include "string.h"
 #include "util.h"
 #include "matrix.h"
@@ -20,9 +19,7 @@ void test_matrixMult() {
   setDeviceMatrixData(A, a, 8);
   setDeviceMatrixData(B, b, 6);
 
-  matrixMult<<<1, 512>>>(A, B, C);
-  cudaDeviceSynchronize();
-  checkError("Matrix mult");
+  deviceMatrixMult(A, B, C, 12);
 
   float c[12];
   getDeviceMatrixData(c, C, 12);
@@ -57,13 +54,11 @@ void test_matrixElementWise() {
   setDeviceMatrixData(A, data, 6);
   setDeviceMatrixData(B, data, 6);
 
-  matrixAdd<<<1, 512>>>(A, B, C, 1);
-  cudaDeviceSynchronize();
-  checkError("Matrix add");
+  deviceMatrixAdd(A, B, C, 1, 6);
 
   float c[6];
   getDeviceMatrixData(c, C, 6);
-  
+
   char result[64];
   int offset = 0;
   for (int i = 0; i < 6; ++i) {
@@ -77,11 +72,9 @@ void test_matrixElementWise() {
     exit(EXIT_FAILURE);
   }
 
-  matrixAdd<<<1, 512>>>(A, B, C, -1);
-  cudaDeviceSynchronize();
-  checkError("Matrix sub");
+  deviceMatrixAdd(A, B, C, -1, 6);
   getDeviceMatrixData(c, C, 6);
-  
+
   offset = 0;
   for (int i = 0; i < 6; ++i) {
     offset += snprintf(result + offset, sizeof(result) - offset, "%d ", (int)c[i]);
@@ -94,11 +87,9 @@ void test_matrixElementWise() {
     exit(EXIT_FAILURE);
   }
 
-  hadamardProd<<<1, 512>>>(A, B, C);
-  cudaDeviceSynchronize();
-  checkError("Matrix hadamard");
+  deviceHadamardProd(A, B, C, 6);
   getDeviceMatrixData(c, C, 6);
-  
+
   offset = 0;
   for (int i = 0; i < 6; ++i) {
     offset += snprintf(result + offset, sizeof(result) - offset, "%d ", (int)c[i]);
@@ -111,11 +102,9 @@ void test_matrixElementWise() {
     exit(EXIT_FAILURE);
   }
 
-  sigmoid<<<1, 512>>>(C, C);
-  cudaDeviceSynchronize();
-  checkError("Matrix sigmoid");
+  deviceSigmoid(C, C, 6);
   getDeviceMatrixData(c, C, 6);
-  
+
   offset = 0;
   for (int i = 0; i < 6; ++i) {
     offset += snprintf(result + offset, sizeof(result) - offset, "%.2f ", c[i]);
@@ -124,6 +113,23 @@ void test_matrixElementWise() {
   printf("Result: %s\n", result);
   printf("Expect: 0.50 0.73 0.98 1.00 1.00 1.00\n");
   if (strncmp(result, "0.50 0.73 0.98 1.00 1.00 1.00", 28) != 0) {
+    printf("FAILED\n");
+    exit(EXIT_FAILURE);
+  }
+  printf("\nPASSED\n\n");
+
+
+  deviceMatrixScale(A, 2, C, 6);
+  getDeviceMatrixData(c, C, 6);
+
+  offset = 0;
+  for (int i = 0; i < 6; ++i) {
+    offset += snprintf(result + offset, sizeof(result) - offset, "%.2f ", c[i]);
+  }
+  printf("Testing scalar \n");
+  printf("Result: %s\n", result);
+  printf("Expect: 0 2 4 6 8 10\n");
+  if (strncmp(result, "0 2 4 6 8 10", 28) != 0) {
     printf("FAILED\n");
     exit(EXIT_FAILURE);
   }
@@ -138,7 +144,7 @@ void test_transpose() {
   Matrix *A, *tA, *result;
   float a[8] = {
     0,1,2,3,
-    4,5,6,7 
+    4,5,6,7
   };
   initMatrix(&A, 2, 4);     // A (2,4)
   setDeviceMatrixData(A, a, 8);
@@ -147,9 +153,7 @@ void test_transpose() {
   checkError("Transpose");
 
   initMatrix(&result, 2, 2);
-  matrixMult<<<1, 512>>>(A, tA, result);  // (2,4)(4,2) = (2,2)
-  cudaDeviceSynchronize();
-  checkError("Matrix mult");
+  deviceMatrixMult(A, tA, result, 4);  // (2,4)(4,2) = (2,2)
 
   float c[12];
   getDeviceMatrixData(c, result, 4);
@@ -175,7 +179,7 @@ void test_transpose() {
 }
 
 int main() {
-  
+
   test_matrixMult();
   test_matrixElementWise();
   test_transpose();

@@ -1,4 +1,3 @@
-%%writefile matrix.cu
 #include <iostream>
 #include <cuda.h>
 #include <curand_kernel.h>

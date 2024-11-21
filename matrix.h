@@ -10,7 +10,7 @@ typedef struct {
 
 /** MEMORY management **/
 void initMatrix(Matrix **mat, int rows, int cols);
-void freeMatrix(Matrix **mat);
+void freeMatrix(Matrix *mat);
 __global__ void initRandomData(Matrix *mat, float range);
 __global__ void initZerosData(Matrix *mat);
 void initRandomMatrix(Matrix **mat, int rows, int cols);
@@ -29,7 +29,8 @@ __global__ void hadamardProd(Matrix *a, Matrix *b, Matrix *c);
 __global__ void sigmoid(Matrix *a, Matrix *b);
 __global__ void sigmoidOutputDerivative(Matrix *a, Matrix *b);
 void deviceMatrixMult(Matrix *a, Matrix *b, Matrix *ab, int N);
-void deviceMatrixAdd(Matrix *a, Matrix *b, Matrix *c, int negate, int N);
+void deviceMatrixAdd(Matrix *a, Matrix *b, Matrix *c, int N);
+void deviceMatrixSub(Matrix *a, Matrix *b, Matrix *c, int N);
 void deviceMatrixScale(Matrix *a, float scale, Matrix *b, int N);
 void deviceHadamardProd(Matrix *a, Matrix *b, Matrix *c, int N);
 void deviceSigmoid(Matrix *a, Matrix *b, int N);

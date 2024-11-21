@@ -34,17 +34,19 @@ void forward(Model *model, float *input) {
   setDeviceMatrixData(net.input, input, model->input);
   // Calc hidden layer
   deviceMatrixMult(net.input, net.wxh, net.hidden, model->hidden);
-  deviceMatrixAdd(net.hidden, net.bh, net.hidden, 1, model->hidden);
+  deviceMatrixAdd(net.hidden, net.bh, net.hidden, model->hidden);
   deviceSigmoid(net.hidden, net.hidden, model->hidden);
   // Calc output layer
   deviceMatrixMult(net.hidden, net.why, net.output, model->output);
-  deviceMatrixAdd(net.output, net.by, net.output, 1, model->output);
+  deviceMatrixAdd(net.output, net.by, net.output, model->output);
 }
 
 void backward(Model *model, float *target) {
   Network net = *(model->network);
   /** Calulate the derivate of the Cost function
+   ** Math:
    * dC/dw = tH ⋅ ((sod(y) ⊙ error) ⋅ lr)
+   ** Pseudo code:
    * dC/dw = matrixMult(
    *   transposedHidden,
    *   matrixScale(
@@ -62,7 +64,7 @@ void backward(Model *model, float *target) {
   initMatrix(&error, 1, model->output);
   setDeviceMatrixData(error, target, model->output);
   // Calculate error
-  deviceMatrixAdd(error, net.output, error, -1, model->output);               // error
+  deviceMatrixSub(error, net.output, error, model->output);               // error
   // Calculate gradient
   Matrix *gradient;
   initMatrix(&gradient, 1, model->output);
@@ -70,7 +72,7 @@ void backward(Model *model, float *target) {
   deviceHadamardProd(gradient, error, gradient, model->output);               // sod(y) ⊙ error
   deviceMatrixScale(gradient, model->learningRate, gradient, model->output);  // (sod(y) ⊙ error) ⋅ lr
   // Update bias
-  deviceMatrixAdd(net.by, gradient, net.by);
+  deviceMatrixAdd(net.by, gradient, net.by, model->output);
   // Calculate delta why weights
   Matrix *tHidden;
   matrixTranpose(net.hidden, &tHidden, 1, model->hidden); // (h,1)
@@ -94,7 +96,7 @@ void backward(Model *model, float *target) {
   deviceHadamardProd(gradient, hiddenError, gradient, model->hidden);
   deviceMatrixScale(gradient, model->learningRate, gradient, model->hidden);
   // Update bias
-  deviceMatrixAdd(net.by, gradient, net.by);
+  deviceMatrixAdd(net.by, gradient, net.by, model->hidden);
   // Calculate delta wxh weights
   freeMatrix(hiddenError);
   Matrix *tInput;
@@ -104,8 +106,8 @@ void backward(Model *model, float *target) {
   deviceMatrixMult(tInput, gradient, deltaWxh, model->input*model->hidden);  // (i,1)(1,h) = (i,h)
 
   // Update weights
-  deviceMatrixAdd(net.why, deltaWhy, net.why);
-  deviceMatrixAdd(net.wxh, deltaWxh, net.why);
+  deviceMatrixAdd(net.why, deltaWhy, net.why, model->hidden*model->output);
+  deviceMatrixAdd(net.wxh, deltaWxh, net.wxh, model->input*model->hidden);
   freeMatrix(gradient);
   freeMatrix(tInput);
   freeMatrix(deltaWhy);

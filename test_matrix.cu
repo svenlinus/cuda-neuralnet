@@ -1,4 +1,3 @@
-#include "string.h"
 #include "util.h"
 #include "matrix.h"
 #include <stdio.h>
@@ -39,9 +38,9 @@ void test_matrixMult() {
   }
   printf("\nPASSED\n\n");
 
-  freeMatrix(&A);
-  freeMatrix(&B);
-  freeMatrix(&C);
+  freeMatrix(A);
+  freeMatrix(B);
+  freeMatrix(C);
 }
 
 void test_matrixElementWise() {
@@ -54,7 +53,7 @@ void test_matrixElementWise() {
   setDeviceMatrixData(A, data, 6);
   setDeviceMatrixData(B, data, 6);
 
-  deviceMatrixAdd(A, B, C, 1, 6);
+  deviceMatrixAdd(A, B, C, 6);
 
   float c[6];
   getDeviceMatrixData(c, C, 6);
@@ -72,7 +71,7 @@ void test_matrixElementWise() {
     exit(EXIT_FAILURE);
   }
 
-  deviceMatrixAdd(A, B, C, -1, 6);
+  deviceMatrixSub(A, B, C, 6);
   getDeviceMatrixData(c, C, 6);
 
   offset = 0;
@@ -124,39 +123,39 @@ void test_matrixElementWise() {
 
   offset = 0;
   for (int i = 0; i < 6; ++i) {
-    offset += snprintf(result + offset, sizeof(result) - offset, "%.2f ", c[i]);
+    offset += snprintf(result + offset, sizeof(result) - offset, "%d ", (int)c[i]);
   }
   printf("Testing scalar \n");
   printf("Result: %s\n", result);
   printf("Expect: 0 2 4 6 8 10\n");
-  if (strncmp(result, "0 2 4 6 8 10", 28) != 0) {
+  if (strncmp(result, "0 2 4 6 8 10", 12) != 0) {
     printf("FAILED\n");
     exit(EXIT_FAILURE);
   }
   printf("\nPASSED\n\n");
 
-  freeMatrix(&A);
-  freeMatrix(&B);
-  freeMatrix(&C);
+  freeMatrix(A);
+  freeMatrix(B);
+  freeMatrix(C);
 }
 
 void test_transpose() {
-  Matrix *A, *tA, *result;
+  Matrix *A, *tA, *C;
   float a[8] = {
     0,1,2,3,
     4,5,6,7
   };
   initMatrix(&A, 2, 4);     // A (2,4)
   setDeviceMatrixData(A, a, 8);
-  matrixTranpose(A, &tA);   // tA (4,2)
+  matrixTranpose(A, &tA, 2, 4);   // tA (4,2)
   cudaDeviceSynchronize();
   checkError("Transpose");
 
-  initMatrix(&result, 2, 2);
-  deviceMatrixMult(A, tA, result, 4);  // (2,4)(4,2) = (2,2)
+  initMatrix(&C, 2, 2);
+  deviceMatrixMult(A, tA, C, 4);  // (2,4)(4,2) = (2,2)
 
   float c[12];
-  getDeviceMatrixData(c, result, 4);
+  getDeviceMatrixData(c, C, 4);
 
   char result[32];
   char expected[32] = "14 38 38 126";
@@ -164,7 +163,7 @@ void test_transpose() {
   for (int i = 0; i < 12; ++i) {
     offset += snprintf(result + offset, sizeof(result) - offset, "%d ", (int)c[i]);
   }
-  printf("Testing matrix mult\n");
+  printf("Testing matrix transpose\n");
   printf("Result: %s\n", result);
   printf("Expect: %s\n", expected);
   if (strncmp(result, expected, 12) != 0) {
@@ -173,9 +172,9 @@ void test_transpose() {
   }
   printf("\nPASSED\n\n");
 
-  freeMatrix(&A);
-  freeMatrix(&tA);
-  freeMatrix(&result);
+  freeMatrix(A);
+  freeMatrix(tA);
+  freeMatrix(C);
 }
 
 int main() {

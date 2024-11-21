@@ -18,11 +18,11 @@ void initMatrix(Matrix **mat, int rows, int cols) {
   CERROR( cudaMemcpy(*mat, &temp, sizeof(Matrix), cudaMemcpyHostToDevice) );
 }
 
-void freeMatrix(Matrix **mat) {
+void freeMatrix(Matrix *mat) {
   Matrix temp;
-  CERROR( cudaMemcpy(&temp, *mat, sizeof(Matrix), cudaMemcpyDeviceToHost) );
+  CERROR( cudaMemcpy(&temp, mat, sizeof(Matrix), cudaMemcpyDeviceToHost) );
   CERROR( cudaFree(temp.data) );
-  CERROR( cudaFree(*mat) );
+  CERROR( cudaFree(mat) );
 }
 
 __global__ void initRandomData(Matrix *mat, float range) {
@@ -96,8 +96,13 @@ __global__ void matrixAdd(Matrix *a, Matrix *b, Matrix *c, int negate) {
   if (i < size(c))
     c->data[i] = a->data[i] + (b->data[i] * negate);
 }
-void deviceMatrixAdd(Matrix *a, Matrix *b, Matrix *c, int negate, int N) {
-  matrixAdd<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c, negate);
+void deviceMatrixAdd(Matrix *a, Matrix *b, Matrix *c, int N) {
+  matrixAdd<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c, 1);
+  cudaDeviceSynchronize();
+  checkError("Matrix add");
+}
+void deviceMatrixSub(Matrix *a, Matrix *b, Matrix *c, int N) {
+  matrixAdd<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c, -1);
   cudaDeviceSynchronize();
   checkError("Matrix add");
 }
@@ -119,7 +124,7 @@ __global__ void hadamardProd(Matrix *a, Matrix *b, Matrix *c) {
     c->data[i] = a->data[i] * b->data[i];
 }
 void deviceHadamardProd(Matrix *a, Matrix *b, Matrix *c, int N) {
-  matrixScale<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c);
+  hadamardProd<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c);
   cudaDeviceSynchronize();
   checkError("Hadamard");
 }

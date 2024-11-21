@@ -1,4 +1,3 @@
-#include "string.h"
 #include "util.h"
 #include "network.h"
 
@@ -24,6 +23,7 @@ void test_networkForward() {
   float output;
   getDeviceMatrixData(&output, net.output, 1);
 
+  printf("Testing network forward\n");
   char expected[] = "3.5";
   char result[10];
   snprintf(result, sizeof(result), "%.1f", output);

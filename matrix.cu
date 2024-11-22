@@ -104,7 +104,25 @@ void deviceMatrixAdd(Matrix *a, Matrix *b, Matrix *c, int N) {
 void deviceMatrixSub(Matrix *a, Matrix *b, Matrix *c, int N) {
   matrixAdd<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c, -1);
   cudaDeviceSynchronize();
-  checkError("Matrix add");
+  checkError("Matrix sub");
+}
+__global__ void matrixAddVec(Matrix *a, Matrix *b, Matrix *c) {
+  int i = threadIdx.x + blockIdx.x * blockDim.x;
+  if (i < size(c)) {
+    int row = i / a->cols;
+    int col = i % a->cols;
+    a->data[row * a->cols + col] = a->data[row * a->cols + col] + b->data[col];
+  }
+}
+void deviceMatrixAddVec(Matrix *a, Matrix *b, Matrix *c, int N) {
+  matrixAddVec<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c, 1);
+  cudaDeviceSynchronize();
+  checkError("Matrix add vector");
+}
+
+__global__ reduceRows(Matrix *x, Matrix *y) {
+  int i = threadIdx.x + blockIdx.x * blockDim.x;
+  
 }
 
 __global__ void matrixScale(Matrix *a, float scale, Matrix *b) {
@@ -143,12 +161,12 @@ void deviceSigmoid(Matrix *a, Matrix *b, int N) {
 __global__ void sigmoidOutputDerivative(Matrix *a, Matrix *b) {
   int i = threadIdx.x + blockIdx.x * blockDim.x;
   if (i < size(b)) {
-    int x = a->data[i];
+    float x = a->data[i];
     b->data[i] = x * (1 - x);
   }
 }
 void deviceSigmoidOutputDerivative(Matrix *a, Matrix *b, int N) {
-  sigmoid<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b);
+  sigmoidOutputDerivative<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b);
   cudaDeviceSynchronize();
   checkError("Derivative");
 }

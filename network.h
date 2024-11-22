@@ -20,9 +20,11 @@ typedef struct {
   int hidden;
   int output;
   float learningRate;
+  int batchSize;
 } Model;
 
 Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize);
 void forward(Model *model, float *input);
+float backward(Model *model, float *target);
 
 #endif

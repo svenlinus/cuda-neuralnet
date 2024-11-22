@@ -14,14 +14,16 @@ Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize) {
   model->hidden = hiddenSize;
   model->output = outputSize;
   model->learningRate = 0.01;
+  int batch = 100;
+  model->batchSize = batch;
 
-  initMatrix(&(nn->input), 1, inputSize);              // (1,i)
-  initRandomMatrix(&(nn->wxh), inputSize, hiddenSize); // (1,i)*(i,h) = (1,h)
+  initMatrix(&(nn->input), batch, inputSize);          // (bs,i)
+  initRandomMatrix(&(nn->wxh), inputSize, hiddenSize); // (bs,i)*(i,h) = (bs,h)
   initZerosMatrix(&(nn->bh), 1, hiddenSize);           // (1,h)
-  initMatrix(&(nn->hidden), 1, hiddenSize);            // (1,h)
-  initRandomMatrix(&(nn->why), hiddenSize, outputSize);// (1,h)*(h,o) = (1,o)
+  initMatrix(&(nn->hidden), batch, hiddenSize);        // (bs,h)
+  initRandomMatrix(&(nn->why), hiddenSize, outputSize);// (1,h)*(h,o) = (bs,o)
   initZerosMatrix(&(nn->by), 1, outputSize);           // (1,o)
-  initMatrix(&(nn->output), 1, outputSize);            // (1,o)
+  initMatrix(&(nn->output), batch, outputSize);        // (bs,o)
 
   checkError("Init network");
   return model;
@@ -31,17 +33,30 @@ void forward(Model *model, float *input) {
   Network net = *(model->network);
   // y = s(x⋅wxh + bh)⋅why + by
   // Load input
-  setDeviceMatrixData(net.input, input, model->input);
+  int inputBatch = model->batchSize * model->input;
+  setDeviceMatrixData(net.input, input, inputBatch);
   // Calc hidden layer
-  deviceMatrixMult(net.input, net.wxh, net.hidden, model->hidden);
-  deviceMatrixAdd(net.hidden, net.bh, net.hidden, model->hidden);
-  deviceSigmoid(net.hidden, net.hidden, model->hidden);
+  int hiddenBatch = model->batchSize * model->hidden;
+  deviceMatrixMult(net.input, net.wxh, net.hidden, hiddenBatch);
+  deviceMatrixAddVec(net.hidden, net.bh, net.hidden, hiddenBatch);
+  deviceSigmoid(net.hidden, net.hidden, hiddenBatch);
   // Calc output layer
-  deviceMatrixMult(net.hidden, net.why, net.output, model->output);
-  deviceMatrixAdd(net.output, net.by, net.output, model->output);
+  int outputBatch = model->batchSize * model->input;
+  deviceMatrixMult(net.hidden, net.why, net.output, outputBatch);
+  deviceMatrixAddVec(net.output, net.by, net.output, outputBatch);
+  deviceSigmoid(net.output, net.output, outputBatch);
 }
 
-void backward(Model *model, float *target) {
+float loss(Matrix *error, int n) {
+  float *buff = (float *)malloc(sizeof(float) * n);
+  getDeviceMatrixData(buff, error, n);
+  float sum = 0;
+  for (int i = 0; i < n; i++)
+    sum += buff[i] * buff[i];
+  return sum;
+}
+
+float backward(Model *model, float *target) {
   Network net = *(model->network);
   /** Calulate the derivate of the Cost function
    ** Math:
@@ -65,6 +80,7 @@ void backward(Model *model, float *target) {
   setDeviceMatrixData(error, target, model->output);
   // Calculate error
   deviceMatrixSub(error, net.output, error, model->output);               // error
+  float _loss = loss(error, model->output);
   // Calculate gradient
   Matrix *gradient;
   initMatrix(&gradient, 1, model->output);
@@ -96,7 +112,7 @@ void backward(Model *model, float *target) {
   deviceHadamardProd(gradient, hiddenError, gradient, model->hidden);
   deviceMatrixScale(gradient, model->learningRate, gradient, model->hidden);
   // Update bias
-  deviceMatrixAdd(net.by, gradient, net.by, model->hidden);
+  deviceMatrixAdd(net.bh, gradient, net.bh, model->hidden);
   // Calculate delta wxh weights
   freeMatrix(hiddenError);
   Matrix *tInput;
@@ -112,4 +128,6 @@ void backward(Model *model, float *target) {
   freeMatrix(tInput);
   freeMatrix(deltaWhy);
   freeMatrix(deltaWxh);
+
+  return _loss;
 }

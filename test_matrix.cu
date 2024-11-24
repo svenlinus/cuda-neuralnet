@@ -2,6 +2,14 @@
 #include "matrix.h"
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
+
+void printArray(float *a, int n) {
+  printf("[ ");
+  for (int i = 0; i < n; ++i)
+    printf("%d ", (int)a[i]);
+  printf("]\n");
+}
 
 void test_matrixMult() {
   // (4,2)*(2,3) = (4,3)
@@ -148,8 +156,6 @@ void test_transpose() {
   initMatrix(&A, 2, 4);     // A (2,4)
   setDeviceMatrixData(A, a, 8);
   matrixTranpose(A, &tA, 2, 4);   // tA (4,2)
-  cudaDeviceSynchronize();
-  checkError("Transpose");
 
   initMatrix(&C, 2, 2);
   deviceMatrixMult(A, tA, C, 4);  // (2,4)(4,2) = (2,2)
@@ -160,13 +166,13 @@ void test_transpose() {
   char result[32];
   char expected[32] = "14 38 38 126";
   int offset = 0;
-  for (int i = 0; i < 12; ++i) {
+  for (int i = 0; i < 4; ++i) {
     offset += snprintf(result + offset, sizeof(result) - offset, "%d ", (int)c[i]);
   }
   printf("Testing matrix transpose\n");
   printf("Result: %s\n", result);
   printf("Expect: %s\n", expected);
-  if (strncmp(result, expected, 12) != 0) {
+  if (strncmp(result, expected, strlen(expected)) != 0) {
     printf("FAILED\n");
     exit(EXIT_FAILURE);
   }
@@ -177,11 +183,43 @@ void test_transpose() {
   freeMatrix(C);
 }
 
+void test_acrossRows() {
+  Matrix *A, *B, *C;
+  float a[6] = {1,2,3,
+                4,5,6};
+  float b[3] = {5,5,5};
+  printf("Testing matrix add vec\n");
+  initMatrix(&A, 2, 3);
+  setDeviceMatrixData(A, a, 6);
+  initMatrix(&B, 1, 3);
+  setDeviceMatrixData(B, b, 3);
+  initMatrix(&C, 2, 3);
+  deviceMatrixAddVec(A, B, C, 6);
+  float c[6];
+  getDeviceMatrixData(c, C, 6);
+  float exp[6] = {6,7,8,9,10,11};
+  printArray(exp, 6);
+  printArray(c, 6);
+  for (int i = 0; i < 6; ++i)
+    assert(c[i] == (a[i] + 5));
+  printf("\nPASSED\n\n");
+  printf("Testing matrix reduce rows\n");
+  deviceMatrixReduceRows(A, B, 2, 3);
+  getDeviceMatrixData(b, B, 3);
+  float exp2[3] = {5,7,9};
+  printArray(exp2, 3);
+  printArray(b, 3);
+  for (int i = 0; i < 3; ++i)
+    assert(b[i] == (a[i] + a[i+3]));
+  printf("\nPASSED\n\n");
+}
+
 int main() {
 
   test_matrixMult();
   test_matrixElementWise();
   test_transpose();
+  test_acrossRows();
 
   return 0;
 }

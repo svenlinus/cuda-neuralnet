@@ -36,6 +36,7 @@ void deviceHadamardProd(Matrix *a, Matrix *b, Matrix *c, int N);
 void deviceSigmoid(Matrix *a, Matrix *b, int N);
 void deviceSigmoidOutputDerivative(Matrix *a, Matrix *b, int N);
 void deviceMatrixAddVec(Matrix *a, Matrix *b, Matrix *c, int N);
+void deviceMatrixReduceRows(Matrix *x, Matrix *y, int rows, int cols);
 
 /** TRANSPOSE **/
 void matrixTranpose(Matrix *a, Matrix **b, int arows, int acols);

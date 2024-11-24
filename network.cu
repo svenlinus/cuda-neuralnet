@@ -2,7 +2,7 @@
 #include "util.h"
 #include <stdio.h>
 
-Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize) {
+Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize, int batchSize) {
   Model *model = (Model *)malloc(sizeof(Model));
   if (!model) { perror("malloc"); exit(1); }
 
@@ -14,16 +14,15 @@ Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize) {
   model->hidden = hiddenSize;
   model->output = outputSize;
   model->learningRate = 0.01;
-  int batch = 100;
-  model->batchSize = batch;
+  model->batchSize = batchSize;
 
-  initMatrix(&(nn->input), batch, inputSize);          // (bs,i)
+  initMatrix(&(nn->input), batchSize, inputSize);      // (bs,i)
   initRandomMatrix(&(nn->wxh), inputSize, hiddenSize); // (bs,i)*(i,h) = (bs,h)
-  initZerosMatrix(&(nn->bh), 1, hiddenSize);           // (1,h)
-  initMatrix(&(nn->hidden), batch, hiddenSize);        // (bs,h)
-  initRandomMatrix(&(nn->why), hiddenSize, outputSize);// (1,h)*(h,o) = (bs,o)
+  initZerosMatrix(&(nn->bh), 1, hiddenSize);           // (bs,h)
+  initMatrix(&(nn->hidden), batchSize, hiddenSize);    // (bs,h)
+  initRandomMatrix(&(nn->why), hiddenSize, outputSize);// (bs,h)*(h,o) = (bs,o)
   initZerosMatrix(&(nn->by), 1, outputSize);           // (1,o)
-  initMatrix(&(nn->output), batch, outputSize);        // (bs,o)
+  initMatrix(&(nn->output), batchSize, outputSize);    // (bs,o)
 
   checkError("Init network");
   return model;
@@ -41,7 +40,7 @@ void forward(Model *model, float *input) {
   deviceMatrixAddVec(net.hidden, net.bh, net.hidden, hiddenBatch);
   deviceSigmoid(net.hidden, net.hidden, hiddenBatch);
   // Calc output layer
-  int outputBatch = model->batchSize * model->input;
+  int outputBatch = model->batchSize * model->output;
   deviceMatrixMult(net.hidden, net.why, net.output, outputBatch);
   deviceMatrixAddVec(net.output, net.by, net.output, outputBatch);
   deviceSigmoid(net.output, net.output, outputBatch);
@@ -53,6 +52,7 @@ float loss(Matrix *error, int n) {
   float sum = 0;
   for (int i = 0; i < n; i++)
     sum += buff[i] * buff[i];
+  free(buff);
   return sum;
 }
 
@@ -75,51 +75,74 @@ float backward(Model *model, float *target) {
   */
 
   // Copy target data to GPU
+  int batchSize = model->batchSize;
+  int outputBatch = batchSize * model->output;
   Matrix *error;
-  initMatrix(&error, 1, model->output);
-  setDeviceMatrixData(error, target, model->output);
+  initMatrix(&error, batchSize, model->output);     // (b,o)
+  setDeviceMatrixData(error, target, outputBatch);
   // Calculate error
-  deviceMatrixSub(error, net.output, error, model->output);               // error
-  float _loss = loss(error, model->output);
+  deviceMatrixSub(error, net.output, error, outputBatch);               // error
+  float _loss = loss(error, outputBatch);
   // Calculate gradient
   Matrix *gradient;
-  initMatrix(&gradient, 1, model->output);
-  deviceSigmoidOutputDerivative(net.output, gradient, model->output);         // sod(y)
-  deviceHadamardProd(gradient, error, gradient, model->output);               // sod(y) ⊙ error
-  deviceMatrixScale(gradient, model->learningRate, gradient, model->output);  // (sod(y) ⊙ error) ⋅ lr
+  initMatrix(&gradient, batchSize, model->output);    // (b,o)
+  deviceSigmoidOutputDerivative(net.output, gradient, outputBatch);         // sod(y)
+  deviceHadamardProd(gradient, error, gradient, outputBatch);               // sod(y) ⊙ error
+  deviceMatrixScale(gradient, model->learningRate, gradient, outputBatch);  // (sod(y) ⊙ error) ⋅ lr
   // Update bias
-  deviceMatrixAdd(net.by, gradient, net.by, model->output);
+  Matrix *reducedGrad;
+  if (batchSize > 1) {
+    initMatrix(&reducedGrad, 1, model->output);       // (1,o)
+    deviceMatrixReduceRows(gradient, reducedGrad, batchSize, model->output);
+  } else {
+    reducedGrad = gradient;
+  }
+  deviceMatrixAdd(net.by, reducedGrad, net.by, model->output);
   // Calculate delta why weights
   Matrix *tHidden;
-  matrixTranpose(net.hidden, &tHidden, 1, model->hidden); // (h,1)
+  matrixTranpose(net.hidden, &tHidden, batchSize, model->hidden); // (h,b)
   Matrix *deltaWhy;
   initMatrix(&deltaWhy, model->hidden, model->output);  // (h,o)
   deviceMatrixMult(tHidden, gradient, deltaWhy, model->hidden*model->output); // tH ⋅ ((sod(y) ⊙ error) ⋅ lr)
   freeMatrix(gradient);
   freeMatrix(tHidden);
+  if (batchSize > 1) {
+    deviceMatrixScale(deltaWhy, 1.0f/batchSize, deltaWhy, model->hidden*model->output);
+    freeMatrix(reducedGrad);
+  }
 
   // Calculate hidden layer error
+  int hiddenBatch = batchSize * model->hidden;
   Matrix *hiddenError;
-  initMatrix(&hiddenError, 1, model->hidden);
+  initMatrix(&hiddenError, batchSize, model->hidden);           // (b,h)
   Matrix *tWhy;
   matrixTranpose(net.why, &tWhy, model->hidden, model->output); // (o,h)
-  deviceMatrixMult(error, tWhy, hiddenError, model->hidden);    // (1,o)(0,h) = (1,h)
-  freeMatrix(error);
+  deviceMatrixMult(error, tWhy, hiddenError, hiddenBatch);      // (b,o)(o,h) = (b,h)
   freeMatrix(tWhy);
   // Hidden layer gradient
-  initMatrix(&gradient, 1, model->hidden);
-  deviceSigmoidOutputDerivative(net.hidden, gradient, model->hidden);
-  deviceHadamardProd(gradient, hiddenError, gradient, model->hidden);
-  deviceMatrixScale(gradient, model->learningRate, gradient, model->hidden);
+  initMatrix(&gradient, batchSize, model->hidden);              // (b,h)
+  deviceSigmoidOutputDerivative(net.hidden, gradient, hiddenBatch);
+  deviceHadamardProd(gradient, hiddenError, gradient, hiddenBatch);
+  deviceMatrixScale(gradient, model->learningRate, gradient, hiddenBatch);
   // Update bias
-  deviceMatrixAdd(net.bh, gradient, net.bh, model->hidden);
+  if (batchSize > 1) {
+    initMatrix(&reducedGrad, 1, model->hidden);       // (1,h)
+    deviceMatrixReduceRows(gradient, reducedGrad, batchSize, model->hidden);
+  } else {
+    reducedGrad = gradient;
+  }
+  deviceMatrixAdd(net.bh, reducedGrad, net.bh, model->hidden);
   // Calculate delta wxh weights
   freeMatrix(hiddenError);
   Matrix *tInput;
-  matrixTranpose(net.input, &tInput, 1, model->input); // (i,1)
+  matrixTranpose(net.input, &tInput, batchSize, model->input); // (i,b)
   Matrix *deltaWxh;
   initMatrix(&deltaWxh, model->input, model->hidden);  // (i,h)
-  deviceMatrixMult(tInput, gradient, deltaWxh, model->input*model->hidden);  // (i,1)(1,h) = (i,h)
+  deviceMatrixMult(tInput, gradient, deltaWxh, model->input*model->hidden);  // (i,b)(b,h) = (i,h)
+  if (batchSize > 1) {
+    deviceMatrixScale(deltaWhy, 1.0f/batchSize, deltaWhy, model->hidden*model->output);
+    freeMatrix(reducedGrad);
+  }
 
   // Update weights
   deviceMatrixAdd(net.why, deltaWhy, net.why, model->hidden*model->output);

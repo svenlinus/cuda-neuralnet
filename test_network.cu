@@ -7,7 +7,7 @@
 #define TWO_DEC(n) (int)(n * 100) / 100
 
 void test_networkForward(Model **m) {
-  Model *model = deviceInitNetwork(2, 2, 1);
+  Model *model = deviceInitNetwork(2, 2, 1, 1);
   model->learningRate = 0.5;
   Network net = *(model->network);
 

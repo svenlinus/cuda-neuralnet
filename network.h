@@ -23,7 +23,7 @@ typedef struct {
   int batchSize;
 } Model;
 
-Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize);
+Model *deviceInitNetwork(int inputSize, int hiddenSize, int outputSize, int batchSize);
 void forward(Model *model, float *input);
 float backward(Model *model, float *target);
 

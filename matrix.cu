@@ -5,6 +5,7 @@
 #include "util.h"
 #include "matrix.h"
 #define BLOCKDIM 512
+#define MIN(a, b) (a < b ? a : b)
 
 
 /** MEMORY management **/
@@ -111,18 +112,44 @@ __global__ void matrixAddVec(Matrix *a, Matrix *b, Matrix *c) {
   if (i < size(c)) {
     int row = i / a->cols;
     int col = i % a->cols;
-    a->data[row * a->cols + col] = a->data[row * a->cols + col] + b->data[col];
+    c->data[row * a->cols + col] = a->data[row * a->cols + col] + b->data[col];
   }
 }
 void deviceMatrixAddVec(Matrix *a, Matrix *b, Matrix *c, int N) {
-  matrixAddVec<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c, 1);
+  matrixAddVec<<<BLOCKS(N, BLOCKDIM), BLOCKDIM>>>(a, b, c);
   cudaDeviceSynchronize();
   checkError("Matrix add vector");
 }
 
-__global__ reduceRows(Matrix *x, Matrix *y) {
-  int i = threadIdx.x + blockIdx.x * blockDim.x;
-  
+__global__ void reduceRows(Matrix *x, Matrix *y) {
+  int row = threadIdx.x;
+  int col = blockIdx.x;
+  if (col >= x->cols) return;
+
+  extern __shared__ float shared[];
+
+  float result = 0.0f;
+  for (int i = row; i < x->rows; i += blockDim.x) {
+    result += x->data[i * x->cols + col];
+  }
+  shared[row] = result;
+  __syncthreads();
+
+  for (int s = blockDim.x / 2; s > 0; s /= 2) {
+    if (row < s && (row + s) < blockDim.x) {
+      shared[row] += shared[row + s];
+    }
+    __syncthreads();
+  }
+
+  if (row == 0) {
+    y->data[col] = shared[0];
+  }
+}
+void deviceMatrixReduceRows(Matrix *x, Matrix *y, int rows, int cols) {
+  int blockSize = MIN(rows / 2, 1024);
+  int blockNum = cols;
+  reduceRows<<<blockNum, blockSize, blockSize>>>(x, y);
 }
 
 __global__ void matrixScale(Matrix *a, float scale, Matrix *b) {

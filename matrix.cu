@@ -1,11 +1,12 @@
 #include <iostream>
 #include <cuda.h>
+#include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <string.h>
 #include "util.h"
 #include "matrix.h"
 #define BLOCKDIM 512
-#define MIN(a, b) (a < b ? a : b)
+#define CONSTRAIN(x, min, max) (x < min ? min : (x > max ? max : x))
 
 
 /** MEMORY management **/
@@ -147,9 +148,11 @@ __global__ void reduceRows(Matrix *x, Matrix *y) {
   }
 }
 void deviceMatrixReduceRows(Matrix *x, Matrix *y, int rows, int cols) {
-  int blockSize = MIN(rows / 2, 1024);
+  int blockSize = CONSTRAIN(rows / 2, 1, 1024);
   int blockNum = cols;
   reduceRows<<<blockNum, blockSize, blockSize>>>(x, y);
+  cudaDeviceSynchronize();
+  checkError("Reduce rows");
 }
 
 __global__ void matrixScale(Matrix *a, float scale, Matrix *b) {
@@ -200,12 +203,6 @@ void deviceSigmoidOutputDerivative(Matrix *a, Matrix *b, int N) {
 
 
 /** TRANSPOSE **/
-void matrixTranpose(Matrix *a, Matrix **b, int arows, int acols) {
-  initMatrix(b, acols, arows); // Create matrix with switched rows/cols
-  transpose<<<(arows*acols + 511) / 512, 512>>>(a, *b);
-  cudaDeviceSynchronize();
-  checkError("Transpose");
-}
 __global__ void transpose(Matrix *a, Matrix *b) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   int rows = a->rows, cols = a->cols;
@@ -213,4 +210,48 @@ __global__ void transpose(Matrix *a, Matrix *b) {
 
   int new_i = (i % cols) * rows + (i / cols);  // (curr_col, curr_row)
   b->data[new_i] = a->data[i];
+}
+void matrixTranpose(Matrix *a, Matrix **b, int arows, int acols) {
+  initMatrix(b, acols, arows); // Create matrix with switched rows/cols
+  transpose<<<(arows*acols + 511) / 512, 512>>>(a, *b);
+  cudaDeviceSynchronize();
+  checkError("Transpose");
+}
+
+/** LOSS **/
+__global__ void _squareLoss(Matrix *x, float *result) {
+  int row = threadIdx.x;
+  int col = blockIdx.x;
+  if (col >= x->cols) return;
+
+  extern __shared__ float shared[];
+
+  float sum = 0.0f;
+  for (int i = row; i < x->rows; i += blockDim.x) {
+    float err = x->data[i * x->cols + col];
+    sum += err * err;
+  }
+  shared[row] = sum;
+  __syncthreads();
+
+  for (int s = blockDim.x / 2; s > 0; s /= 2) {
+    if (row < s && (row + s) < blockDim.x) {
+      shared[row] += shared[row + s];
+    }
+    __syncthreads();
+  }
+
+  if (row == 0) {
+    atomicAdd(result, shared[0]);
+  }
+}
+void squareLoss(Matrix *x, float *result, int rows, int cols) {
+  float *y;
+  CERROR( cudaMalloc(&y, sizeof(float)) );
+  int blockSize = CONSTRAIN(rows / 2, 1, 1024);
+  int blockNum = cols;
+  _squareLoss<<<blockNum, blockSize, blockSize>>>(x, y);
+  cudaDeviceSynchronize();
+  checkError("Loss");
+  CERROR( cudaMemcpy(result, y, sizeof(float), cudaMemcpyDeviceToHost) );
 }

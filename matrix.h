@@ -42,4 +42,7 @@ void deviceMatrixReduceRows(Matrix *x, Matrix *y, int rows, int cols);
 void matrixTranpose(Matrix *a, Matrix **b, int arows, int acols);
 __global__ void transpose(Matrix *input, Matrix *output);
 
+/** LOSS **/
+void squareLoss(Matrix *x, float *result, int rows, int cols);
+
 #endif

@@ -9,7 +9,6 @@
 #define IMAGE_HEIGHT 28
 #define NUM_TRAIN_IMAGES 60000
 #define NUM_TEST_IMAGES 10000
-#define BATCH_SIZE 100
 
 uint32_t reverseInt(uint32_t n) {
   return ((n >> 24) & 0xFF) | 
@@ -105,17 +104,23 @@ void printArray(float *a, int n) {
 
 int main() {
   // Hyperparameters
-  int inputSize = IMAGE_WIDTH * IMAGE_HEIGHT;  // 784
-  int hiddenSize = 128;
-  int outputSize = 10;
-  int epochs = 5;
+  const int inputSize = IMAGE_WIDTH * IMAGE_HEIGHT;  // 784
+  const int hiddenSize = 128;
+  const int outputSize = 10;
+  const int epochs = 5;
+  const int batchSize = 50;
+  const float learningRate = 0.01;
 
   // Initialize model
-  Model* model = deviceInitNetwork(inputSize, hiddenSize, outputSize, BATCH_SIZE);
+  Model* model = initModel(batchSize, learningRate);
+  addInputLayer(model, inputSize);
+  addDenseLayer(model, hiddenSize);
+  addDenseLayer(model, outputSize);
+  compileModel(model);
 
   // Load MNIST data
-  float** trainImages = loadMNISTImages(MNIST_TRAIN_IMAGES, NUM_TRAIN_IMAGES, BATCH_SIZE);
-  printf("Loaded %d images into %d batches of size %d\n", NUM_TRAIN_IMAGES, NUM_TRAIN_IMAGES / BATCH_SIZE, BATCH_SIZE);
+  float** trainImages = loadMNISTImages(MNIST_TRAIN_IMAGES, NUM_TRAIN_IMAGES, batchSize);
+  printf("Loaded %d images into %d batches of size %d\n", NUM_TRAIN_IMAGES, NUM_TRAIN_IMAGES / batchSize, batchSize);
   float* trainLabels = loadMNISTLabels(MNIST_TRAIN_LABELS, NUM_TRAIN_IMAGES);
   printf("Loaded %d labels\n", NUM_TRAIN_IMAGES);
 
@@ -123,10 +128,9 @@ int main() {
   for (int epoch = 0; epoch < epochs; epoch++) {
     float totalLoss = 0.0f;
 
-    for (int i = 0; i < NUM_TRAIN_IMAGES / BATCH_SIZE; i++) {
+    for (int i = 0; i < NUM_TRAIN_IMAGES / batchSize; i++) {
       forward(model, trainImages[i]);
-      float *target = trainLabels + (i * 10 * BATCH_SIZE);
-      totalLoss += backward(model, target);
+      totalLoss += backward(model, trainLabels + (i * 10 * batchSize));
     }
     printf("Epoch %d completed, loss %f\n", epoch + 1, totalLoss);
   }
@@ -134,17 +138,17 @@ int main() {
   const int testIndex = 0;
   printf("Testing accuracy: \n");
   forward(model, trainImages[testIndex]);
-  float output[10 * BATCH_SIZE];
-  getDeviceMatrixData(output, model->network->output, 10 * BATCH_SIZE);
+  float output[10 * batchSize];
+  getDeviceMatrixData(output, model->network->output->neurons, 10 * batchSize);
 
-  for (int i = 0; i < BATCH_SIZE; ++i) {
+  for (int i = 0; i < batchSize; ++i) {
     printf("Image %d \nLabel:  ", testIndex + i);
     printArray(trainLabels + (i*10), 10);
     printf("Output: ");
     printArray(output + (i*10), 10);
   }
 
-  for (int i = 0; i < NUM_TRAIN_IMAGES / BATCH_SIZE; i++) {
+  for (int i = 0; i < NUM_TRAIN_IMAGES / batchSize; i++) {
     free(trainImages[i]);
   }
   free(trainImages);

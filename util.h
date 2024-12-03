@@ -13,6 +13,14 @@
 
 #define BLOCKS(N, blockSize) (((N) + (blockSize) - 1) / (blockSize))
 
-void checkError(const char *msg);
+#define checkError(msg) {                                   \
+  cudaError_t err = cudaGetLastError();                     \
+  if (err != cudaSuccess) {                                 \
+      std::cerr << msg << ": " << cudaGetErrorString(err)   \
+                << " in file " << __FILE__                  \
+                << " at line " << __LINE__ << std::endl;    \
+      exit(EXIT_FAILURE);                                   \
+  }                                                         \
+}                                                           
 
 #endif

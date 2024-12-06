@@ -1,6 +1,7 @@
 #include "network.h"
 #include "util.h"
 #include <stdio.h>
+#include <stdint.h>
 
 void addDenseLayer(Model *model, int size) {
   Layer *prev = model->network->output;
@@ -147,4 +148,23 @@ float backward(Model *model, float *target) {
   }
 
   return _loss;
+}
+
+int modelAccuracy(Model *model, float **images, uint8_t *labels) {
+  forward(model, images[0]);
+  float output[model->output * model->batchSize];
+  getDeviceMatrixData(output, model->network->output->neurons, 10 * model->batchSize);
+
+  int numCorrect = 0;
+  for (int i = 0; i < model->batchSize; ++i) {
+    int maxIdx = 0;
+    for (int j = 1; j < model->output; ++j){
+      if (output[i*model->output + j] > output[i*model->output + maxIdx])
+        maxIdx = j;
+    }
+    if (labels[i] == maxIdx)
+      numCorrect ++;
+  }
+
+  return numCorrect;
 }

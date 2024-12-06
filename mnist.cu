@@ -69,7 +69,7 @@ void convertToOneHot(uint8_t label, float* oneHot) {
   }
 }
 
-float* loadMNISTLabels(const char* filename, int numLabels) {
+float* loadMNISTLabels(const char* filename, int numLabels, uint8_t *compressedLabels) {
   FILE* file = fopen(filename, "rb");
   if (!file) {
     perror("Cannot open label file");
@@ -88,6 +88,7 @@ float* loadMNISTLabels(const char* filename, int numLabels) {
   for (int i = 0; i < numLabels; ++i) {
     uint8_t label;
     fread(&label, 1, 1, file);
+    compressedLabels[i] = label;
     convertToOneHot(label, labels + (i * 10));
   }
 
@@ -108,7 +109,7 @@ int main() {
   const int hiddenSize = 128;
   const int outputSize = 10;
   const int epochs = 5;
-  const int batchSize = 50;
+  const int batchSize = 100;
   const float learningRate = 0.01;
 
   // Initialize model
@@ -119,9 +120,10 @@ int main() {
   compileModel(model);
 
   // Load MNIST data
-  float** trainImages = loadMNISTImages(MNIST_TRAIN_IMAGES, NUM_TRAIN_IMAGES, batchSize);
+  uint8_t *compressedLabels = (uint8_t *)malloc(NUM_TRAIN_IMAGES * sizeof(uint8_t));
+  float **trainImages = loadMNISTImages(MNIST_TRAIN_IMAGES, NUM_TRAIN_IMAGES, batchSize);
   printf("Loaded %d images into %d batches of size %d\n", NUM_TRAIN_IMAGES, NUM_TRAIN_IMAGES / batchSize, batchSize);
-  float* trainLabels = loadMNISTLabels(MNIST_TRAIN_LABELS, NUM_TRAIN_IMAGES);
+  float *trainLabels = loadMNISTLabels(MNIST_TRAIN_LABELS, NUM_TRAIN_IMAGES, compressedLabels);
   printf("Loaded %d labels\n", NUM_TRAIN_IMAGES);
 
   // Training loop
@@ -136,7 +138,13 @@ int main() {
   }
 
   const int testIndex = 0;
-  printf("Testing accuracy: \n");
+  printf("\nTesting accuracy: \n");
+  int numCorrect = 0;
+  int numBatches = 600;
+  for (int i = 0; i < numBatches; ++i)
+    numCorrect += modelAccuracy(model, trainImages + i, compressedLabels + i * batchSize);
+  printf("Accuracy %.3f\n\n", (float)(numCorrect) / (batchSize * numBatches));
+
   forward(model, trainImages[testIndex]);
   float output[10 * batchSize];
   getDeviceMatrixData(output, model->network->output->neurons, 10 * batchSize);

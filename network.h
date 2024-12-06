@@ -36,5 +36,6 @@ void addDenseLayer(Model *model, int size);
 void forward(Model *model, float *input);
 float backward(Model *model, float *target);
 void compileModel(Model *model);
+int modelAccuracy(Model *model, float **images, uint8_t *labels);
 
 #endif
